@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <title>Prenotazione Terapia</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 480px; margin: 2em auto; }
+    label { display: block; margin-top: 1em; }
+    select, input, button { width: 100%; padding: 0.5em; margin-top: 0.3em; }
+    .slot { margin: 0.3em 0; }
+  </style>
+</head>
+<body>
+  <h1>Prenotazione terapia logopedica</h1>
+
+  <label for="day-select">Scegli il giorno della seduta:</label>
+  <select id="day-select"></select>
+
+  <div id="slots-container"></div>
+
+  <form id="booking-form" style="display:none;">
+    <label>
+      Nome del bambino:
+      <input type="text" id="child-name" required />
+    </label>
+    <label>
+      Data di nascita del bambino:
+      <input type="date" id="child-dob" required />
+    </label>
+    <label>
+      Email del genitore:
+      <input type="email" id="parent-email" required />
+    </label>
+    <label>
+      <input type="checkbox" id="policy" required />
+      Ho letto e accetto che in caso di mancata comunicazione entro 24 ore, sarà addebitato il 50% della terapia.
+    </label>
+    <button type="submit">Prenota</button>
+  </form>
+
+  <div id="message" style="margin-top:1em;"></div>
+
+<script>
+  const schedule = {
+    "2025-06-07": [
+      { id: "0701", time: "08:45 - 09:30" },
+      { id: "0702", time: "09:30 - 10:15" },
+      { id: "0703", time: "10:15 - 11:00" },
+      { id: "0704", time: "11:00 - 11:45" },
+      { id: "0705", time: "11:45 - 12:30" },
+      { id: "0706", time: "12:30 - 13:15" }
+    ],
+    "2025-06-14": [
+      { id: "1401", time: "08:45 - 09:30" },
+      { id: "1402", time: "09:30 - 10:15" },
+      { id: "1403", time: "10:15 - 11:00" },
+      { id: "1404", time: "11:00 - 11:45" }
+    ]
+  };
+
+  const daySelect = document.getElementById('day-select');
+  const slotsContainer = document.getElementById('slots-container');
+  const bookingForm = document.getElementById('booking-form');
+  const messageDiv = document.getElementById('message');
+
+  let bookedSlots = [];
+
+  function loadDays() {
+    Object.keys(schedule).forEach(date => {
+      const option = document.createElement('option');
+      option.value = date;
+      option.textContent = new Date(date).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long' });
+      daySelect.appendChild(option);
+    });
+  }
+
+  async function fetchBookedSlots() {
+    try {
+      const response = await fetch("https://script.google.com/macros/s/AKfycbwkr7xKaqMVAdI3E_udeA42eaaJUzGITm3QGe42G5HdInVWbkzks5sC6vEx1rar8_FIRw/exec");
+      const data = await response.json();
+      bookedSlots = data.bookedSlots || [];
+    } catch {
+      bookedSlots = [];
+    }
+  }
+
+  function showSlots() {
+    const selectedDay = daySelect.value;
+    slotsContainer.innerHTML = "";
+    bookingForm.style.display = 'none';
+    messageDiv.textContent = "";
+
+    if (!selectedDay || !schedule[selectedDay]) return;
+
+    const slots = schedule[selectedDay];
+
+    slots.forEach(slot => {
+      const isBooked = bookedSlots.includes(slot.id);
+      const slotDiv = document.createElement('div');
+      slotDiv.className = 'slot';
+
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'slot';
+      radio.id = slot.id;
+      radio.value = slot.id;
+      radio.disabled = isBooked;
+
+      const label = document.createElement('label');
+      label.htmlFor = slot.id;
+      label.textContent = slot.time + (isBooked ? " (Occupato)" : "");
+
+      slotDiv.appendChild(radio);
+      slotDiv.appendChild(label);
+      slotsContainer.appendChild(slotDiv);
+    });
+
+    bookingForm.style.display = 'block';
+  }
+
+  bookingForm.addEventListener('submit', async e => {
+    e.preventDefault();
+
+    const selectedSlot = document.querySelector('input[name="slot"]:checked');
+    if (!selectedSlot) {
+      alert("Seleziona uno slot orario.");
+      return;
+    }
+
+    const childName = document.getElementById('child-name').value.trim();
+    const childDOB = document.getElementById('child-dob').value;
+    const parentEmail = document.getElementById('parent-email').value.trim();
+    const policyChecked = document.getElementById('policy').checked;
+
+    if (!policyChecked) {
+      alert("Devi accettare le condizioni per procedere.");
+      return;
+    }
+
+    const postData = {
+      idSlot: selectedSlot.value,
+      date: daySelect.value,
+      time: schedule[daySelect.value].find(s => s.id === selectedSlot.value).time,
+      childName,
+      childDOB,
+      parentEmail
+    };
+
+    try {
+      const response = await fetch("https://script.google.com/macros/s/AKfycbwkr7xKaqMVAdI3E_udeA42eaaJUzGITm3QGe42G5HdInVWbkzks5sC6vEx1rar8_FIRw/exec", {
+        method: "POST",
+        body: JSON.stringify(postData),
+        headers: { "Content-Type": "application/json" }
+      });
+      const result = await response.json();
+
+      if (result.result === "success") {
+        messageDiv.style.color = "green";
+        messageDiv.textContent = "Prenotazione confermata! Riceverai una mail di conferma.";
+        bookingForm.reset();
+        await fetchBookedSlots();
+        showSlots();
+      } else {
+        messageDiv.style.color = "red";
+        messageDiv.textContent = "Errore: " + result.message;
+      }
+    } catch {
+      messageDiv.style.color = "red";
+      messageDiv.textContent = "Errore di connessione. Riprova più tardi.";
+    }
+  });
+
+  async function init() {
+    loadDays();
+    await fetchBookedSlots();
+    showSlots();
+  }
+
+  daySelect.addEventListener('change', showSlots);
+
+  init();
+</script>
+
+</body>
+</html>
+
